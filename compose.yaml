@@ -1,0 +1,61 @@
+name: butler
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: butler-db
+    environment:
+      POSTGRES_DB: butler
+      POSTGRES_USER: butler
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-butler_dev}
+    volumes:
+      - butler_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U butler -d butler"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: agent
+    container_name: butler-agent
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: butler-api
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: butler
+      DB_USER: butler
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-butler_dev}
+      AGENT_URL: http://agent:8001
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  butler_db:
